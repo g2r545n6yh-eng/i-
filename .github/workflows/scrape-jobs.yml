@@ -1,1 +1,23 @@
+name: İlan Tarayıcı
 
+# Her 6 saatte bir otomatik çalışır (UTC saatine göre 00:00, 06:00, 12:00, 18:00)
+# İstersen "Actions" sekmesinden "Run workflow" ile elle de tetikleyebilirsin.
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Tarayıcıyı çalıştır
+        run: node scrape.js
