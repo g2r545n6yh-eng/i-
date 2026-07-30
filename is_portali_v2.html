@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Berk Ege - İş Fırsatları Paneli</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="İş Panelim">
+<meta name="theme-color" content="#4f46e5">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%234f46e5'/%3E%3Ctext x='50' y='65' font-size='55' text-anchor='middle' fill='white' font-family='Arial'%3E%F0%9F%93%8B%3C/text%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  #error-box {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    background: #fee2e2;
+    color: #991b1b;
+    padding: 16px;
+    font-family: monospace;
+    font-size: 13px;
+    z-index: 99999;
+    max-height: 50vh;
+    overflow-y: auto;
+    border-bottom: 3px solid #dc2626;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+<div id="error-box"></div>
+<div id="app"></div>
+
+<script>
+window.onerror = function(message, source, lineno, colno, error) {
+  var box = document.getElementById('error-box');
+  box.style.display = 'block';
+  box.innerText = '❌ HATA:\n\n' + message + '\nSatır: ' + lineno + ':' + colno + (error && error.stack ? '\n\n' + error.stack : '');
+  return false;
+};
+
+// ================== VERİLER ==================
+var FIREBASE_URL = 'https://berk-job-portal-default-rtdb.europe-west1.firebasedatabase.app';
+var FORMSPREE_URL = 'https://formspree.io/f/xeeyddpr';
+var EMAIL = 'berk.ege@icloud.com';
+
+var jobListings = [
+  { id: 1, company: 'HalJet Tarım Ürünleri', position: 'Hal Depo Müdürü', location: 'İstanbul', age: '1 gün önce', url: 'https://www.kariyer.net/is-ilani/haljet-tarim-urunleri-hal-depo-muduru-4499598', match: 96, source: 'Kariyer.net' },
+  { id: 2, company: 'Medlog Lojistik Gemicilik Turizm A.Ş.', position: 'Depo Yöneticisi', location: 'İstanbul(Asya)', age: '2 gün önce', url: 'https://www.kariyer.net/is-ilani/medlog-lojistik-gemicilik-turizm-a-s-depo-yoneticisi-4497231', match: 95, source: 'Kariyer.net' },
+  { id: 3, company: 'CK Enerji Yatırım A.Ş', position: 'Depo ve Stok Operasyonları Yöneticisi', location: 'İstanbul', age: '17 gün önce', url: 'https://www.kariyer.net/is-ilani/ck-enerji-yatirim-a-s-depo-ve-stok-operasyonlari-yoneticisi-4415617', match: 95, source: 'Kariyer.net' },
+  { id: 4, company: 'KAMEKS Eksantrik Mil ve Makina Parça San. ve Tic. Ltd. Şti', position: 'Depo ve Sevkiyat Yöneticisi', location: 'İstanbul', age: '4 gün önce', url: 'https://www.kariyer.net/is-ilani/kameks-eksantrik-milve-makina-parcal-sanve-tic-ltd-depo-ve-sevkiyat-yoneticisi-4503635', match: 94, source: 'Kariyer.net' },
+  { id: 5, company: 'MEDA İç ve Dış Mekan Mob. İth. İhr. San. Tic. Ltd.', position: 'Depo Sorumlu / Mesul Müdürü', location: 'İstanbul(Asya)', age: '1 gün önce', url: 'https://www.kariyer.net/is-ilani/meda-ic-ve-dis-mekan-mob-im-ith-ihr-san-tic-lt-d-depo-sorumlu-mesul-muduru-4494685', match: 93, source: 'Kariyer.net' },
+  { id: 6, company: 'Parfois', position: 'Depo Müdürü', location: 'İstanbul', age: '11 gün önce', url: 'https://www.kariyer.net/is-ilani/parfois-depo-muduru-4458753', match: 92, source: 'Kariyer.net' },
+  { id: 7, company: 'd.ream (Doğuş Restaurant Entertainment & Management)', position: 'Mezzaluna İstanbul Finans Merkezi - Depo Sorumlusu', location: 'İstanbul', age: '12 gün önce', url: 'https://www.kariyer.net/is-ilani/d-ream-dogus-restaurant-entertainment-managemen-mezzaluna-istanbul-finans-merkezi-depo-sorumlusu-4497041', match: 90, source: 'Kariyer.net' },
+  { id: 8, company: 'INC Pharma İlaç San. ve Tic. Ltd. Şti.', position: 'Depo Sorumlusu', location: 'İstanbul(Avr.)', age: '4 gün önce', url: 'https://www.kariyer.net/is-ilani/inc-pharma-ilac-san-ve-tic-ltd-sti-depo-sorumlusu-4357824', match: 89, source: 'Kariyer.net' },
+  { id: 9, company: 'ELC Elektronik Dış Ticaret Paz. Ltd. Şti.', position: 'Depo Sorumlusu', location: 'İstanbul(Asya)', age: '1 gün önce', url: 'https://www.kariyer.net/is-ilani/elc-elektronik-dis-ticaret-paz-ltd-sti-depo-sorumlusu-4505066', match: 88, source: 'Kariyer.net' },
+  { id: 10, company: 'Karmod Prefabrike Yapı Teknolojileri İnş. San. Tic. Ltd. Şti', position: 'Depo Sorumlusu', location: 'İstanbul(Asya)', age: '8 gün önce', url: 'https://www.kariyer.net/is-ilani/karmod-prefabrike-yapi-teknolojileri-ins-san-tic-l-depo-sorumlusu-4500947', match: 87, source: 'Kariyer.net' },
+  { id: 11, company: 'Mert Döküm Anonim Şirketi', position: 'Depo Sorumlusu', location: 'İstanbul(Asya)', age: '4 gün önce', url: 'https://www.kariyer.net/is-ilani/mert-dokum-anonim-sirketi-depo-sorumlusu-4422711', match: 86, source: 'Kariyer.net' },
+  { id: 12, company: 'Art Marina Gayrimenkul Anonim Şirketi', position: 'Depo Sorumlusu', location: 'İstanbul', age: '12 gün önce', url: 'https://www.kariyer.net/is-ilani/art-marina-gayrimenkul-anonim-sirketi-depo-sorumlusu-4497038', match: 85, source: 'Kariyer.net' },
+  { id: 13, company: 'ESFA Lojistik ve Dijital Mağazacılık A.Ş.', position: 'Depo Operasyon Uzmanı', location: 'İstanbul', age: '6 gün önce', url: 'https://www.kariyer.net/is-ilani/esfa-lojistik-ve-dijital-magazacilik-anonim-sirket-depo-operasyon-uzmani-4468348', match: 91, source: 'Kariyer.net' },
+  { id: 14, company: 'Trendex Uluslararası Lojistik Hizmetleri San. ve Tic. Ltd. Şti.', position: 'Gece Lojistik Operasyon Sorumlusu - İstanbul Anadolu', location: 'İstanbul(Asya)', age: '7 gün önce', url: 'https://www.kariyer.net/is-ilani/trendex-uluslararasi-lojistik-hizmetleri-sanayi-ve-gece-lojistik-operasyon-sorumlusu-istanbul-anadol-4446007', match: 88, source: 'Kariyer.net' },
+  { id: 15, company: 'ETTS Elektronik Tic. Tahsilat Sist. San. ve Tic. Ltd. Şti.', position: 'Global Lojistik Operasyon Uzmanı', location: 'İstanbul (Hibrit)', age: '2 gün önce', url: 'https://www.kariyer.net/is-ilani/etts-elektronik-tic-tahsilat-sist-san-vetic-ltd-st-global-lojistik-operasyon-uzmani-4448675', match: 87, source: 'Kariyer.net' },
+  { id: 16, company: 'Ert Grup Ent. Gıda İnş. Taah. Gayrmenkul Otom. San. ve Tic. A.Ş', position: 'Gece Vardiyası Depo Operasyon Sorumlusu', location: 'İstanbul(Sancaktepe)', age: 'Yeni', url: 'https://tr.indeed.com/viewjob?jk=f99483260cf89629', match: 90, source: 'Indeed' },
+  { id: 17, company: 'Sahan Gıda Dağıtım', position: 'Depo Stok ve Operasyon Uzmanı', location: 'İstanbul(Ataşehir)', age: 'Yeni', url: 'https://tr.indeed.com/viewjob?jk=6f88d10525a4ee91', match: 88, source: 'Indeed' },
+  { id: 18, company: 'Yetiş+ Çarşı', position: 'Lojistik ve Operasyon Uzmanı / Uzman Yardımcısı', location: 'İstanbul(Şişli)', age: 'Yeni', url: 'https://tr.indeed.com/viewjob?jk=4ef15f6ae69b09c4', match: 86, source: 'Indeed' },
+  { id: 19, company: 'Hekimzade İlaç Kozmetik ve Gıda Sanayi', position: 'Depo ve Operasyon Personeli', location: 'İstanbul(Beyoğlu)', age: 'Yeni', url: 'https://tr.indeed.com/viewjob?jk=6f4bc66adbf7ff6b', match: 82, source: 'Indeed' }
+];
+
+var CATALOG_SEARCH_DATE = '30 Temmuz 2026';
+
+// ================== STATE ==================
+var state = {
+  savedJobs: [],
+  filterLocation: 'all',
+  filterSalary: 60,
+  searchTerm: '',
+  showSaved: false,
+  applications: [],
+  appliedJobIds: [],
+  selectedJobId: null,
+  submitting: false,
+  geminiApiKey: localStorage.getItem('geminiApiKey') || ''
+};
+
+function esc(str) {
+  var div = document.createElement('div');
+  div.innerText = str == null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function getFilteredJobs() {
+  var term = state.searchTerm.toLowerCase();
+  var list = jobListings.filter(function(job) {
+    return term === '' ||
+      job.position.toLowerCase().indexOf(term) !== -1 ||
+      job.company.toLowerCase().indexOf(term) !== -1;
+  });
+  list.sort(function(a, b) { return b.match - a.match; });
+  return list;
+}
+
+function getDisplayJobs() {
+  if (state.showSaved) {
+    return jobListings.filter(function(j) { return state.savedJobs.indexOf(j.id) !== -1; });
+  }
+  return getFilteredJobs();
+}
+
+function isLogged(jobId) {
+  return state.applications.some(function(a) { return a.jobId === jobId; });
+}
+
+// ================== RENDER ==================
+function renderApp() {
+  var filtered = getFilteredJobs();
+  var display = getDisplayJobs();
+
+  var html = '';
+  html += '<div class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-6">';
+  html += '<div class="max-w-6xl mx-auto">';
+
+  // Header
+  html += '<div class="mb-8 flex justify-between items-start">';
+  html += '<div><h1 class="text-3xl font-bold text-gray-900">İş Arama &amp; Takip Paneli</h1>';
+  html += '<p class="text-gray-600">Berk Ege &bull; Depo Sorumlusu &amp; Lojistik Uzmanı</p></div>';
+  html += '<button onclick="openSettingsModal()" class="px-3 py-2 bg-white rounded-lg shadow-sm text-sm font-medium text-gray-700">&#9881;&#65039; AI Ayarları</button>';
+  html += '</div>';
+
+  // Info banner - honesty about how this works
+  html += '<div class="mb-6 bg-blue-50 border-l-4 border-blue-400 p-4 rounded text-sm text-blue-900">';
+  html += '<strong>Bu ilanlar gerçek:</strong> Kariyer.net\'te ' + CATALOG_SEARCH_DATE + ' tarihinde canlı olarak, birden fazla kategoride (depo müdürü, depo sorumlusu, lojistik operasyon, sevkiyat) tarandı. İlanlar hızlı kapanabilir; "İlanı Gör" ile gerçek sayfaya git ve gerçekten orada başvur.';
+  html += '</div>';
+
+  // Automatic alert recommendation - the real solution for continuous updates
+  html += '<div class="mb-6 bg-green-50 border-l-4 border-green-500 p-4 rounded text-sm text-green-900">';
+  html += '<strong>Otomatik &amp; sürekli güncel ilan almak için:</strong> Ben arka planda 7/24 çalışamam, ama Kariyer.net\'in kendi <strong>İş Alarmı</strong> özelliği tam bunu yapıyor &mdash; arama kaydedip yeni bir ilan çıktığında otomatik email alabilirsin. ';
+  html += '<a href="https://www.kariyer.net/is-ilanlari/istanbul-depo" target="_blank" rel="noopener" class="underline font-medium">Depo ilanları için alarm kur &#8599;</a> &bull; ';
+  html += '<a href="https://www.kariyer.net/is-ilanlari/istanbul-lojistik" target="_blank" rel="noopener" class="underline font-medium">Lojistik ilanları için alarm kur &#8599;</a>';
+  html += '</div>';
+
+  // Success/Error banner
+  html += '<div id="banner"></div>';
+
+  // Stats
+  html += '<div class="grid grid-cols-3 gap-4 mb-8">';
+  html += '<div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-indigo-600"><div class="text-2xl font-bold text-gray-900">' + jobListings.length + '</div><div class="text-sm text-gray-600">Gerçek İlan</div></div>';
+  html += '<div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-green-600"><div class="text-2xl font-bold text-gray-900">' + filtered.length + '</div><div class="text-sm text-gray-600">Uygun İlan</div></div>';
+  html += '<div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-purple-600"><div class="text-2xl font-bold text-gray-900">' + state.applications.length + '</div><div class="text-sm text-gray-600">Kayıtlı Başvuru</div></div>';
+  html += '</div>';
+
+  // Controls
+  html += '<div class="bg-white rounded-lg p-6 shadow-sm mb-6">';
+  html += '<div class="mb-2"><label class="block text-sm font-medium text-gray-700 mb-2">Şirket veya Pozisyon Ara</label>';
+  html += '<input type="text" id="searchInput" oninput="onSearchChange(this.value)" value="' + esc(state.searchTerm) + '" placeholder="Örn: Depo Müdürü, Medlog..." class="w-full px-4 py-2 border border-gray-300 rounded-lg">';
+  html += '</div>';
+  html += '<div class="flex items-end mt-3"><button onclick="toggleShowSaved()" class="px-4 py-2 rounded-lg font-medium ' + (state.showSaved ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-800') + '">Kaydedilenler (' + state.savedJobs.length + ')</button></div>';
+  html += '</div>';
+
+  // Job list
+  html += '<div class="space-y-4 mb-8">';
+  if (display.length === 0) {
+    html += '<div class="bg-white rounded-lg p-12 text-center shadow-sm"><p class="text-gray-600 text-lg">Uygun ilan bulunamadı</p></div>';
+  } else {
+    display.forEach(function(job) {
+      var isSaved = state.savedJobs.indexOf(job.id) !== -1;
+      var logged = isLogged(job.id);
+      html += '<div class="bg-white rounded-lg p-6 shadow-sm border-l-4 border-indigo-500">';
+      html += '<div class="flex justify-between items-start mb-3">';
+      html += '<div><h3 class="text-xl font-bold text-gray-900">' + esc(job.position) + '</h3>';
+      html += '<p class="text-indigo-600 font-medium">' + esc(job.company) + '</p>';
+      html += '<p class="text-xs text-gray-500 mt-1">' + esc(job.location) + ' &bull; ' + esc(job.age) + ' &bull; <span class="font-medium">' + esc(job.source) + '</span></p></div>';
+      html += '<button onclick="toggleSave(' + job.id + ')" class="p-2 rounded-lg ' + (isSaved ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600') + '">' + (isSaved ? '&#10084;&#65039;' : '&#129293;') + '</button>';
+      html += '</div>';
+
+      html += '<div class="flex justify-between items-center pt-4 border-t border-gray-200">';
+      html += '<div class="flex items-center gap-2"><div class="w-16 h-8 bg-gradient-to-r from-green-400 to-green-600 rounded text-white text-xs font-bold flex items-center justify-center">%' + job.match + '</div><span class="text-sm text-gray-600">Uyum Oranı</span></div>';
+      html += '<div class="flex items-center gap-2">';
+      html += '<a href="' + job.url + '" target="_blank" rel="noopener" class="px-4 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100">İlanı Gör &amp; Başvur &#8599;</a>';
+      if (logged) {
+        html += '<button onclick="viewApplicationReceiptByJob(' + job.id + ')" class="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700">Kaydedildi &#8226; Gör</button>';
+      } else {
+        html += '<button onclick="openApplicationModal(' + job.id + ')" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg font-medium hover:bg-gray-300">Başvurdum, Kaydet</button>';
+      }
+      html += '</div></div></div>';
+    });
+  }
+  html += '</div>';
+
+  // Applications section
+  if (state.applications.length > 0) {
+    html += '<div class="mt-8"><h2 class="text-2xl font-bold text-gray-900 mb-4">Başvurularım (' + state.applications.length + ')</h2><div class="space-y-3">';
+    state.applications.forEach(function(app) {
+      html += '<div class="bg-white rounded-lg p-5 shadow-sm border-l-4 border-green-500">';
+      html += '<div class="flex justify-between items-start mb-3">';
+      html += '<div><h3 class="font-bold text-gray-900 text-lg">' + esc(app.jobTitle || 'Bilinmeyen Pozisyon') + '</h3><p class="text-indigo-600 font-medium text-sm">' + esc(app.company || '') + '</p></div>';
+      html += '<div class="text-right"><span class="inline-block px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold mb-2">' + esc(app.status || 'Gönderildi') + '</span><p class="text-xs text-gray-600">' + esc(app.appliedDate || '') + ' ' + esc(app.appliedTime || '') + '</p></div>';
+      html += '</div>';
+      html += '<div class="grid grid-cols-2 gap-4 py-3 border-y border-gray-200 text-sm">';
+      html += '<div><p class="text-gray-600 text-xs">Kaynak</p><p class="font-bold text-gray-900">' + esc(app.source || '-') + '</p></div>';
+      html += '<div><p class="text-gray-600 text-xs">Başlama Tarihi</p><p class="font-bold text-gray-900">' + esc(app.startDate || '-') + '</p></div>';
+      html += '</div>';
+      html += '<button onclick="showReceiptById(' + app.id + ')" class="mt-3 text-sm text-indigo-600 font-medium">Detayları Gör &rarr;</button>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  html += '</div></div>';
+
+  // Modal (hidden by default) - manual application log
+  html += '<div id="modalOverlay" style="display:none" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">';
+  html += '<div class="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">';
+  html += '<div class="bg-gradient-to-r from-indigo-600 to-blue-600 text-white p-6">';
+  html += '<h2 id="modalPosition" class="text-2xl font-bold"></h2>';
+  html += '<p id="modalCompany" class="text-indigo-100 text-sm"></p>';
+  html += '</div>';
+  html += '<div class="p-6 space-y-4">';
+  html += '<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">Bu formu sadece <strong>gerçekten Kariyer.net\'te başvurduktan sonra</strong> doldur.</div>';
+  html += '<div id="modalMessage"></div>';
+  html += '<div><label class="block text-sm font-medium text-gray-700 mb-2">İşe Başlama Tarihi (tercih)</label><input type="date" id="modalStartDate" class="w-full px-4 py-2 border border-gray-300 rounded-lg"></div>';
+  html += '<div><label class="block text-sm font-medium text-gray-700 mb-2">Kapı Mektubu Taslağı</label>';
+  html += '<textarea id="modalCoverLetter" rows="8" class="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"></textarea>';
+  html += '<button id="aiRewriteBtn" onclick="aiRewriteCoverLetter()" class="mt-2 px-3 py-2 bg-purple-50 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-100">&#10024; AI ile Yeniden Yaz (Gemini)</button>';
+  html += '<div id="aiMsg" class="mt-2"></div></div>';
+  html += '<div class="flex gap-3 pt-4 border-t border-gray-200">';
+  html += '<button onclick="closeApplicationModal()" class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium">İptal Et</button>';
+  html += '<button id="submitBtn" onclick="submitApplication()" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium">Kaydet</button>';
+  html += '</div></div></div></div>';
+
+  // Receipt Modal (view-only, shows what was actually saved)
+  html += '<div id="receiptOverlay" style="display:none" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">';
+  html += '<div class="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">';
+  html += '<div class="bg-gradient-to-r from-green-600 to-green-500 text-white p-6">';
+  html += '<h2 class="text-2xl font-bold">Başvuru Kaydı</h2>';
+  html += '<p class="text-green-50 text-sm">Bu, senin kendi takibin için tuttuğun bir nottur.</p>';
+  html += '</div>';
+  html += '<div id="receiptContent" class="p-6 space-y-3"></div>';
+  html += '<div class="p-6 pt-0"><button onclick="closeReceiptModal()" class="w-full px-4 py-2 bg-gray-200 text-gray-800 rounded-lg font-medium">Kapat</button></div>';
+  html += '</div></div>';
+
+  // Settings Modal (Gemini API key)
+  html += '<div id="settingsOverlay" style="display:none" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">';
+  html += '<div class="bg-white rounded-lg max-w-lg w-full">';
+  html += '<div class="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-6">';
+  html += '<h2 class="text-2xl font-bold">&#10024; AI Ayarları</h2>';
+  html += '<p class="text-purple-100 text-sm">Google Gemini &mdash; ücretsiz API anahtarı</p>';
+  html += '</div>';
+  html += '<div class="p-6 space-y-4">';
+  html += '<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">';
+  html += '1. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="underline font-medium">aistudio.google.com/apikey</a> adresine git<br>';
+  html += '2. Google hesabınla giriş yap<br>';
+  html += '3. "Create API Key" tıkla, anahtarı kopyala<br>';
+  html += '4. Aşağıya yapıştır &mdash; sadece senin tarayıcında saklanır, kimseye gönderilmez.';
+  html += '</div>';
+  html += '<div><label class="block text-sm font-medium text-gray-700 mb-2">Gemini API Anahtarı</label>';
+  html += '<input type="text" id="apiKeyInput" placeholder="AIza..." value="' + esc(state.geminiApiKey || '') + '" class="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"></div>';
+  html += '<div class="flex gap-3 pt-2">';
+  html += '<button onclick="closeSettingsModal()" class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium">Kapat</button>';
+  html += '<button onclick="saveApiKey()" class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg font-medium">Kaydet</button>';
+  html += '</div></div></div></div>';
+
+  document.getElementById('app').innerHTML = html;
+}
+
+// ================== EVENTS ==================
+function onSearchChange(val) {
+  state.searchTerm = val;
+  renderApp();
+  document.getElementById('searchInput').focus();
+  var input = document.getElementById('searchInput');
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function onLocationChange(val) {
+  state.filterLocation = val;
+  renderApp();
+}
+
+function onSalaryChange(val) {
+  state.filterSalary = parseInt(val);
+  renderApp();
+}
+
+function toggleShowSaved() {
+  state.showSaved = !state.showSaved;
+  renderApp();
+}
+
+function toggleSave(jobId) {
+  var idx = state.savedJobs.indexOf(jobId);
+  if (idx === -1) { state.savedJobs.push(jobId); }
+  else { state.savedJobs.splice(idx, 1); }
+  renderApp();
+}
+
+function generateCoverLetter(job) {
+  return 'Merhaba,\n\n' +
+    job.company + ' bünyesindeki ' + job.position + ' pozisyonu için başvurmak istiyorum.\n\n' +
+    '10 yılı aşkın depo operasyonları, lojistik süreçleri ve stok yönetimi deneyimime sahibim. ' +
+    'SAP ERP, Logo Tiger, Nebim V3 ve WMS sistemlerini etkin şekilde kullanıyorum. ' +
+    'Arşiv Dizayn\'da Depo Sorumlusu olarak yaklaşık 9.000 farklı ürünün stok yönetimini ve envanter doğruluğunu sağlıyorum.\n\n' +
+    'Deneyimlerimin ' + job.position + ' pozisyonuna değer katacağına inanıyorum. Görüşme fırsatı için teşekkür ederim.\n\n' +
+    'Saygılarımla,\nBerk Ege';
+}
+
+function openApplicationModal(jobId) {
+  state.selectedJobId = jobId;
+  var job = jobListings.filter(function(j) { return j.id === jobId; })[0];
+  renderApp();
+  document.getElementById('modalPosition').innerText = job.position;
+  document.getElementById('modalCompany').innerHTML = esc(job.company) + ' &bull; ' + esc(job.location);
+  document.getElementById('modalCoverLetter').value = generateCoverLetter(job);
+  document.getElementById('modalOverlay').style.display = 'flex';
+}
+
+function closeApplicationModal() {
+  document.getElementById('modalOverlay').style.display = 'none';
+  state.selectedJobId = null;
+}
+
+function viewApplicationReceiptByJob(jobId) {
+  var app = state.applications.filter(function(a) { return a.jobId === jobId; })[0];
+  if (!app) return;
+  showReceipt(app);
+}
+
+function showReceiptById(appId) {
+  var app = state.applications.filter(function(a) { return a.id === appId; })[0];
+  if (!app) return;
+  showReceipt(app);
+}
+
+function showReceipt(app) {
+  var html = '';
+  html += '<div class="bg-gray-50 rounded-lg p-4">';
+  html += '<p class="font-bold text-gray-900 text-lg">' + esc(app.jobTitle || '-') + '</p>';
+  html += '<p class="text-indigo-600 font-medium">' + esc(app.company || '-') + '</p>';
+  html += '</div>';
+  html += '<div class="grid grid-cols-2 gap-4 text-sm">';
+  html += '<div><p class="text-gray-500 text-xs">Kayıt Tarihi</p><p class="font-medium">' + esc(app.appliedDate || '-') + ' ' + esc(app.appliedTime || '') + '</p></div>';
+  html += '<div><p class="text-gray-500 text-xs">İşe Başlama Tarihi</p><p class="font-medium">' + esc(app.startDate || '-') + '</p></div>';
+  html += '</div>';
+  if (app.coverLetter) {
+    html += '<div><p class="text-gray-500 text-xs mb-1">Ön Yazı Taslağı</p><div class="bg-gray-50 rounded p-3 text-sm text-gray-700 whitespace-pre-wrap">' + esc(app.coverLetter) + '</div></div>';
+  }
+  html += '<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">Not: Bu kayıt sadece senin kendi takibin içindir.</div>';
+
+  document.getElementById('receiptContent').innerHTML = html;
+  document.getElementById('receiptOverlay').style.display = 'flex';
+}
+
+function closeReceiptModal() {
+  document.getElementById('receiptOverlay').style.display = 'none';
+}
+
+function openSettingsModal() {
+  document.getElementById('settingsOverlay').style.display = 'flex';
+}
+
+function closeSettingsModal() {
+  document.getElementById('settingsOverlay').style.display = 'none';
+}
+
+function saveApiKey() {
+  var key = document.getElementById('apiKeyInput').value.trim();
+  state.geminiApiKey = key;
+  localStorage.setItem('geminiApiKey', key);
+  closeSettingsModal();
+  showBanner(key ? 'AI anahtarı kaydedildi. Artık "AI ile Yeniden Yaz" kullanabilirsin.' : 'AI anahtarı temizlendi.', 'success');
+}
+
+function aiRewriteCoverLetter() {
+  var job = jobListings.filter(function(j) { return j.id === state.selectedJobId; })[0];
+  if (!job) return;
+
+  if (!state.geminiApiKey) {
+    document.getElementById('aiMsg').innerHTML = '<div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">Önce sağ üstteki &#9881;&#65039; AI Ayarları\'ndan ücretsiz bir Gemini API anahtarı ekle.</div>';
+    return;
+  }
+
+  var btn = document.getElementById('aiRewriteBtn');
+  var originalText = btn.innerText;
+  btn.disabled = true;
+  btn.innerText = 'Yazılıyor...';
+  document.getElementById('aiMsg').innerHTML = '';
+
+  var cvSummary = 'Berk Ege, 10 yılı aşkın depo operasyonları, lojistik süreçleri, stok yönetimi ve mağaza operasyonları deneyimine sahip. ' +
+    'Şu an Arşiv Dizayn\'da Depo Sorumlusu olarak yaklaşık 9.000 farklı ürünün stok yönetimini ve envanter doğruluğunu sağlıyor. ' +
+    'SAP ERP, Logo Tiger, Nebim V3 ve WMS sistemlerini etkin şekilde kullanıyor. Daha önce Securitas Alarm\'da Lojistik Uzmanı, ' +
+    'Murathan Özer Telekom\'da Mağaza Müdürü olarak çalıştı. İngilizce orta seviye, B sınıfı ehliyet sahibi.';
+
+  var prompt = 'Aşağıdaki CV özetine sahip bir adayın, belirtilen iş ilanına başvurmak için Türkçe, samimi ama profesyonel, ' +
+    '150-200 kelimelik kısa bir kapı mektubu yaz. Sadece kapı mektubu metnini yaz, başka açıklama ekleme.\n\n' +
+    'CV Özeti:\n' + cvSummary + '\n\n' +
+    'Başvurulan Pozisyon: ' + job.position + '\n' +
+    'Şirket: ' + job.company + '\n' +
+    'Konum: ' + job.location;
+
+  fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(state.geminiApiKey), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }]
+    })
+  })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      btn.disabled = false;
+      btn.innerText = originalText;
+      var text = data && data.candidates && data.candidates[0] && data.candidates[0].content &&
+        data.candidates[0].content.parts && data.candidates[0].content.parts[0] &&
+        data.candidates[0].content.parts[0].text;
+      if (text) {
+        document.getElementById('modalCoverLetter').value = text.trim();
+        document.getElementById('aiMsg').innerHTML = '<div class="bg-green-50 border border-green-200 rounded-lg p-2 text-xs text-green-800">AI ile yeniden yazıldı &#10024;</div>';
+      } else {
+        var errMsg = (data && data.error && data.error.message) || 'Bilinmeyen hata';
+        document.getElementById('aiMsg').innerHTML = '<div class="bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-800">Hata: ' + esc(errMsg) + '</div>';
+      }
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.innerText = originalText;
+      document.getElementById('aiMsg').innerHTML = '<div class="bg-red-50 border border-red-200 rounded-lg p-2 text-xs text-red-800">Bağlantı hatası: ' + esc(err.message) + '</div>';
+    });
+}
+
+function showBanner(message, type) {
+  var banner = document.getElementById('banner');
+  if (!banner) return;
+  var bg = type === 'error' ? 'bg-red-50 border-red-500 text-red-800' : 'bg-green-50 border-green-500 text-green-800';
+  banner.innerHTML = '<div class="mb-6 border-l-4 p-4 rounded ' + bg + '"><p class="font-medium">' + esc(message) + '</p></div>';
+}
+
+function submitApplication() {
+  var job = jobListings.filter(function(j) { return j.id === state.selectedJobId; })[0];
+  if (!job) return;
+
+  var startDate = document.getElementById('modalStartDate').value;
+  var coverLetter = document.getElementById('modalCoverLetter').value;
+  var modalMsg = document.getElementById('modalMessage');
+  modalMsg.innerHTML = '';
+
+  var submitBtn = document.getElementById('submitBtn');
+  submitBtn.disabled = true;
+  submitBtn.innerText = 'Kaydediliyor...';
+
+  var now = new Date();
+  var appData = {
+    id: Date.now(),
+    jobId: job.id,
+    jobTitle: job.position,
+    company: job.company,
+    source: job.source,
+    appliedDate: now.toLocaleDateString('tr-TR'),
+    appliedTime: now.toLocaleTimeString('tr-TR'),
+    status: 'Kaydedildi',
+    coverLetter: coverLetter,
+    startDate: startDate,
+    email: EMAIL
+  };
+
+  var firebaseOk = false;
+  var emailOk = false;
+  var pending = 2;
+
+  function finishUp() {
+    pending--;
+    if (pending > 0) return;
+
+    submitBtn.disabled = false;
+    submitBtn.innerText = 'Kaydet';
+
+    if (firebaseOk || emailOk) {
+      state.applications.unshift(appData);
+      closeApplicationModal();
+      renderApp();
+      showBanner('Kaydedildi: ' + job.company + ' - ' + job.position, 'success');
+    } else {
+      modalMsg.innerHTML = '<div class="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mb-2">Kaydedilemedi. İnternet bağlantını kontrol et.</div>';
+    }
+  }
+
+  fetch(FIREBASE_URL + '/applications/' + appData.id + '.json', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(appData)
+  }).then(function(res) {
+    firebaseOk = res.ok;
+    finishUp();
+  }).catch(function(err) {
+    console.log('Firebase hatası:', err);
+    finishUp();
+  });
+
+  fetch(FORMSPREE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({
+      name: 'Berk Ege',
+      email: EMAIL,
+      phone: '+90 (530) 378 05 12',
+      _subject: 'Başvuru Kaydı: ' + job.position + ' - ' + job.company,
+      message: 'Yeni Başvuru Kaydı:\n\nPozisyon: ' + job.position + '\nŞirket: ' + job.company +
+        '\nİlan Linki: ' + job.url + '\nİşe Başlama Tercihi: ' + (startDate || '-') +
+        '\n\nÖn Yazı Taslağı:\n' + (coverLetter || '(Yazılmadı)')
+    })
+  }).then(function(res) {
+    emailOk = res.ok;
+    finishUp();
+  }).catch(function(err) {
+    console.log('Formspree hatası:', err);
+    finishUp();
+  });
+}
+
+function loadApplicationsFromFirebase() {
+  fetch(FIREBASE_URL + '/applications.json')
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data) {
+        var list = Object.keys(data).map(function(key) { return data[key]; });
+        state.applications = list;
+        renderApp();
+      }
+    })
+    .catch(function(err) { console.log('Firebase yükleme hatası:', err); });
+}
+
+function loadJobsFromFirebase() {
+  fetch(FIREBASE_URL + '/jobs.json')
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data) {
+        var freshJobs = Object.keys(data).map(function(key) { return data[key]; });
+        if (freshJobs.length > 0) {
+          jobListings = freshJobs;
+          showBanner('İlanlar güncellendi: ' + freshJobs.length + ' ilan (otomatik tarama).', 'success');
+          renderApp();
+        }
+      }
+    })
+    .catch(function(err) { console.log('Firebase ilan yükleme hatası:', err); });
+}
+
+// ================== BAŞLAT ==================
+renderApp();
+loadApplicationsFromFirebase();
+loadJobsFromFirebase();
+</script>
+</body>
+</html>
