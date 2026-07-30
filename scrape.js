@@ -1,18 +1,19 @@
 // scrape.js
-// Kariyer.net'te belirli kategorilerde arama yapar, bulduğu ilanları
-// Firebase Realtime Database'e yazar. GitHub Actions tarafından
-// zamanlanmış olarak (örn. her 6 saatte) çalıştırılır.
+// Kariyer.net + Indeed + Eleman.net + Yenibiriş'te belirli kategorilerde
+// arama yapar, bulduğu ilanları Firebase Realtime Database'e yazar.
+// GitHub Actions tarafından zamanlanmış olarak (her 6 saatte) çalışır.
 //
-// NOT: Kariyer.net doğrudan otomatik isteklere HTTP 403 ile karşılık
-// veriyor (bot koruması). Bu yüzden istekleri ücretsiz r.jina.ai
-// "reader" servisi üzerinden yapıyoruz - bu servis sayfayı kendi
-// tarafında render edip temiz metin/markdown olarak döndürüyor.
-// r.jina.ai da engellenirse Firebase güncellenmez, eski veriler kalır.
+// NOT: LinkedIn buraya BİLEREK eklenmedi. LinkedIn'in kullanım
+// şartları otomatik veri toplamayı (scraping) açıkça yasaklıyor ve
+// bunu hukuki yollarla uyguladığı bilinen bir platform.
+//
+// İstekler r.jina.ai ücretsiz "reader" servisi üzerinden yapılıyor
+// çünkü hedef siteler doğrudan otomatik isteklere HTTP 403 dönebiliyor.
 
 const FIREBASE_URL = 'https://berk-job-portal-default-rtdb.europe-west1.firebasedatabase.app';
 const READER_PREFIX = 'https://r.jina.ai/';
 
-const SEARCH_URLS = [
+const KARIYER_URLS = [
   'https://www.kariyer.net/is-ilanlari/depo+muduru',
   'https://www.kariyer.net/is-ilanlari/istanbul-depo+sorumlusu',
   'https://www.kariyer.net/is-ilanlari/istanbul-lojistik+uzmani',
@@ -21,12 +22,45 @@ const SEARCH_URLS = [
   'https://www.kariyer.net/is-ilanlari/istanbul-depo+operasyon+sorumlusu'
 ];
 
-// Bu konumları içeren ilanları listeden çıkar (kullanıcı istemiyor)
+const INDEED_URLS = [
+  'https://tr.indeed.com/q-depo-sorumlusu-l-istanbul-is-ilanlari.html',
+  'https://tr.indeed.com/q-depo-operasyon-l-istanbul-is-ilanlari.html',
+  'https://tr.indeed.com/q-lojistik-uzman%C4%B1-l-istanbul-is-ilanlari.html',
+  'https://tr.indeed.com/q-sevkiyat-sorumlusu-l-istanbul-is-ilanlari.html'
+];
+
+const ELEMAN_URLS = [
+  'https://www.eleman.net/is-ilanlari/istanbul-avrupa/depo-elemani',
+  'https://www.eleman.net/is-ilanlari/istanbul-anadolu/depo-elemani',
+  'https://www.eleman.net/is-ilanlari/istanbul/depo'
+];
+
+const YENIBIRIS_URLS = [
+  'https://www.yenibiris.com/is-ilanlari/depo-sorumlusu',
+  'https://www.yenibiris.com/is-ilanlari/depo-sevkiyat-sorumlusu',
+  'https://www.yenibiris.com/is-ilanlari/depo-ve-lojistik-sorumlusu',
+  'https://www.yenibiris.com/is-ilanlari/depo-sefi'
+];
+
 const EXCLUDE_LOCATIONS = ['kocaeli', 'gebze'];
+
+// Bu ifadelerden biri geçen ilan kaldırılmış/kapanmış demektir, dahil etme
+const STALE_MARKERS = [
+  'yayından kaldırılmıştır',
+  'ilan yayından kaldırıldı',
+  'başvuru kapandı',
+  'bu ilan artık aktif değil'
+];
 
 const SKILL_KEYWORDS = [
   'sap', 'wms', 'logo tiger', 'nebim', 'depo', 'lojistik', 'stok',
   'envanter', 'sevkiyat', 'operasyon', 'müdür', 'yönetici', 'sorumlu', 'uzman'
+];
+
+const KNOWN_LOCATIONS = [
+  'İstanbul Avrupa Yakası', 'İstanbul Anadolu Yakası',
+  'İstanbul Avrupa', 'İstanbul Anadolu',
+  'İstanbul(Asya)', 'İstanbul(Avr.)', 'İstanbul'
 ];
 
 function scoreMatch(text) {
@@ -38,12 +72,20 @@ function scoreMatch(text) {
   return Math.min(score, 98);
 }
 
+function isExcludedLocation(text) {
+  var lower = text.toLowerCase();
+  return EXCLUDE_LOCATIONS.some(function (loc) { return lower.indexOf(loc) !== -1; });
+}
+
+function isStale(text) {
+  var lower = text.toLowerCase();
+  return STALE_MARKERS.some(function (marker) { return lower.indexOf(marker) !== -1; });
+}
+
 async function fetchViaReader(url) {
   var readerUrl = READER_PREFIX + url;
   try {
-    var res = await fetch(readerUrl, {
-      headers: { 'Accept': 'text/plain' }
-    });
+    var res = await fetch(readerUrl, { headers: { 'Accept': 'text/plain' } });
     if (!res.ok) {
       console.log('HATA: ' + url + ' -> Reader HTTP ' + res.status);
       return null;
@@ -55,51 +97,33 @@ async function fetchViaReader(url) {
   }
 }
 
-function extractJobsFromMarkdown(markdown) {
-  // r.jina.ai sayfayı markdown olarak döndürüyor.
-  // İlan linkleri şu formatta görünüyor: [Şirket Pozisyon Konum ... N gün](https://www.kariyer.net/is-ilani/slug-id)
+// ---------- KARİYER.NET ----------
+function extractKariyerJobs(markdown) {
   var jobs = [];
   if (!markdown) return jobs;
-
   var linkRegex = /\[([^\]]{5,300})\]\((https:\/\/www\.kariyer\.net\/is-ilani\/[a-z0-9\-]+)\)/gi;
-  var match;
-  var seen = {};
-
+  var match, seen = {};
   while ((match = linkRegex.exec(markdown)) !== null) {
     var text = match[1].replace(/\s+/g, ' ').trim();
     var url = match[2];
-
-    if (seen[url]) continue;
+    if (seen[url] || isExcludedLocation(text) || isStale(text)) continue;
     seen[url] = true;
-
-    var lowerText = text.toLowerCase();
-    var isExcluded = EXCLUDE_LOCATIONS.some(function (loc) {
-      return lowerText.indexOf(loc) !== -1;
-    });
-    if (isExcluded) continue;
-
-    jobs.push({ rawText: text, url: url });
+    jobs.push(parseKariyerFields(text, url));
   }
-
   return jobs;
 }
 
-function parseJobFields(rawText) {
+function parseKariyerFields(rawText, url) {
   var text = rawText;
   var age = 'Yeni';
-
-  // Sondaki "X gün / X saat / X ay / Son gün" gibi ifadeleri yakala
   var ageMatch = text.match(/(Son gün|(\d+)\s*(gün|saat|ay))\s*$/i);
   if (ageMatch) {
     age = ageMatch[0].trim();
     text = text.slice(0, ageMatch.index).trim();
   }
-
-  // Çalışma şeklini temizle (Tam zamanlı, Dönemsel, vb.)
   text = text.replace(/(Tam zamanlı|Dönemsel\s*\/?\s*Proje bazlı|Yarı zamanlı|Serbest Zamanlı)\s*(\*update\*)?\s*$/i, '').trim();
   text = text.replace(/Ort\.\s*\d+\s*günde dönüyor/i, '').trim();
 
-  // Konum bilgisini yakala (İş Yerinde / Uzaktan / Hibrit öncesi)
   var location = 'İstanbul';
   var locMatch = text.match(/(İstanbul(?:\(Asya\)|\(Avr\.\))?)\s*(İş Yerinde|Uzaktan\s*\/?\s*Remote|Hibrit)/i);
   if (locMatch) {
@@ -109,62 +133,169 @@ function parseJobFields(rawText) {
     text = text.replace(/(İş Yerinde|Uzaktan\s*\/?\s*Remote|Hibrit)\s*$/i, '').trim();
   }
 
-  // Geriye kalan metin genelde "Şirket Pozisyon Şirket" şeklinde tekrarlı.
-  // Basit yaklaşım: tamamını "position" olarak sakla, ilk birkaç kelimeyi "company" tahmini yap.
   var words = text.split(' ').filter(Boolean);
   var companyGuessLen = Math.min(4, Math.max(1, Math.floor(words.length / 3)));
   var company = words.slice(0, companyGuessLen).join(' ') || 'Bilinmiyor';
 
+  return { company: company, position: text || rawText, location: location, age: age, url: url, match: scoreMatch(rawText), source: 'Kariyer.net' };
+}
+
+// ---------- INDEED ----------
+function extractIndeedJobs(markdown) {
+  var jobs = [];
+  if (!markdown) return jobs;
+  var linkRegex = /\[([^\]]{5,200})\]\((https:\/\/tr\.indeed\.com\/(?:rc\/clk|pagead\/clk|viewjob)\?[^\)]*jk=([a-f0-9]+)[^\)]*)\)\s*([^\n\[]{0,150})/gi;
+  var match, seen = {};
+  while ((match = linkRegex.exec(markdown)) !== null) {
+    var position = match[1].replace(/\s+/g, ' ').trim();
+    var jk = match[3];
+    var trailing = (match[4] || '').replace(/\s+/g, ' ').trim();
+    var cleanUrl = 'https://tr.indeed.com/viewjob?jk=' + jk;
+    var fullText = position + ' ' + trailing;
+    if (seen[jk] || isExcludedLocation(fullText) || isStale(fullText)) continue;
+    seen[jk] = true;
+    var parts = trailing.split(/\s{2,}/).filter(Boolean);
+    jobs.push({
+      company: parts[0] || 'Bilinmiyor',
+      position: position,
+      location: parts[1] || 'İstanbul',
+      age: 'Yeni',
+      url: cleanUrl,
+      match: scoreMatch(fullText),
+      source: 'Indeed'
+    });
+  }
+  return jobs;
+}
+
+// ---------- ELEMAN.NET & YENİBİRİŞ (ortak mantık) ----------
+// Bu iki site kart metinlerini genelde şu şekilde diziyor:
+//   "{Şirket} - {Bölge} - {İlçe} {POZİSYON} {açıklama önizlemesi...}"
+// Kesin sınırlar garanti değil; bu yüzden bilinen bölge isimlerini
+// referans noktası olarak kullanıp şirket/konum/pozisyonu ayırıyoruz.
+function parseRegionalCardFields(rawText, url, sourceName) {
+  var text = rawText.replace(/\s+/g, ' ').trim();
+
+  // "Giriş Metni", "İŞ İLANI" gibi site şablon ifadelerini temizle
+  text = text.replace(/İŞ İLANI/gi, '').replace(/Giriş Metni/gi, '').trim();
+
+  var company = 'Bilinmiyor';
+  var location = 'İstanbul';
+  var position = text;
+
+  // Önce " - " ile ayrılmış ilk parçayı şirket adı olarak dene
+  var dashParts = text.split(' - ');
+  if (dashParts.length >= 2) {
+    company = dashParts[0].trim();
+    var rest = dashParts.slice(1).join(' - ').trim();
+
+    // Bilinen bölge isimlerinden birini ara
+    var foundLoc = null;
+    for (var i = 0; i < KNOWN_LOCATIONS.length; i++) {
+      var loc = KNOWN_LOCATIONS[i];
+      if (rest.indexOf(loc) === 0 || rest.indexOf(' ' + loc) !== -1 && rest.indexOf(loc) < 40) {
+        foundLoc = loc;
+        break;
+      }
+    }
+    if (foundLoc) {
+      location = foundLoc;
+      var idx = rest.indexOf(foundLoc);
+      position = rest.slice(idx + foundLoc.length).replace(/^[\s\-]+/, '').trim();
+    } else {
+      position = rest;
+    }
+  }
+
+  // Pozisyon metni çok uzunsa (açıklama karışmışsa) ilk 120 karakterle sınırla
+  if (position.length > 120) {
+    position = position.slice(0, 120).trim() + '…';
+  }
+  if (!position) position = text;
+
   return {
     company: company,
-    position: text || rawText,
+    position: position,
     location: location,
-    age: age
+    age: 'Yeni',
+    url: url,
+    match: scoreMatch(rawText),
+    source: sourceName
   };
 }
 
-async function main() {
-  var allJobs = [];
-  var idCounter = 1;
+function extractElemanJobs(markdown) {
+  var jobs = [];
+  if (!markdown) return jobs;
+  var linkRegex = /\[([^\]]{5,350})\]\((https:\/\/www\.eleman\.net\/is-ilani\/[a-z0-9\-]+-i\d+)\)/gi;
+  var match, seen = {};
+  while ((match = linkRegex.exec(markdown)) !== null) {
+    var text = match[1].replace(/\s+/g, ' ').trim();
+    var url = match[2];
+    if (seen[url] || isExcludedLocation(text) || isStale(text)) continue;
+    seen[url] = true;
+    jobs.push(parseRegionalCardFields(text, url, 'Eleman.net'));
+  }
+  return jobs;
+}
 
-  for (var i = 0; i < SEARCH_URLS.length; i++) {
-    var url = SEARCH_URLS[i];
-    console.log('Taranıyor: ' + url);
+function extractYenibirisJobs(markdown) {
+  var jobs = [];
+  if (!markdown) return jobs;
+  var linkRegex = /\[([^\]]{5,350})\]\((https:\/\/www\.yenibiris\.com\/is-ilani\/[a-z0-9\-]+\/\d+)\)/gi;
+  var match, seen = {};
+  while ((match = linkRegex.exec(markdown)) !== null) {
+    var text = match[1].replace(/\s+/g, ' ').trim();
+    var url = match[2];
+    if (seen[url] || isExcludedLocation(text) || isStale(text)) continue;
+    seen[url] = true;
+    jobs.push(parseRegionalCardFields(text, url, 'Yenibiriş'));
+  }
+  return jobs;
+}
+
+async function scrapeSite(urls, extractFn, siteName) {
+  var results = [];
+  for (var i = 0; i < urls.length; i++) {
+    var url = urls[i];
+    console.log('[' + siteName + '] Taranıyor: ' + url);
     var markdown = await fetchViaReader(url);
-    var found = extractJobsFromMarkdown(markdown);
-    console.log('  -> ' + found.length + ' ilan linki bulundu');
-
-    found.forEach(function (item) {
-      var fields = parseJobFields(item.rawText);
-      allJobs.push({
-        id: idCounter++,
-        company: fields.company,
-        position: fields.position,
-        location: fields.location,
-        age: fields.age,
-        url: item.url,
-        match: scoreMatch(item.rawText),
-        source: 'Kariyer.net',
-        scrapedAt: new Date().toISOString()
-      });
-    });
-
-    // r.jina.ai ücretsiz kullanımda dakikada ~20 istek sınırı var, aralarda bekle
+    var found = extractFn(markdown);
+    console.log('  -> ' + found.length + ' ilan bulundu');
+    results = results.concat(found);
     await new Promise(function (r) { setTimeout(r, 3000); });
   }
+  return results;
+}
+
+async function main() {
+  var kariyerJobs = await scrapeSite(KARIYER_URLS, extractKariyerJobs, 'Kariyer.net');
+  var indeedJobs = await scrapeSite(INDEED_URLS, extractIndeedJobs, 'Indeed');
+  var elemanJobs = await scrapeSite(ELEMAN_URLS, extractElemanJobs, 'Eleman.net');
+  var yenibirisJobs = await scrapeSite(YENIBIRIS_URLS, extractYenibirisJobs, 'Yenibiriş');
+
+  var allJobs = kariyerJobs.concat(indeedJobs, elemanJobs, yenibirisJobs);
 
   var uniqueByUrl = {};
   allJobs.forEach(function (job) { uniqueByUrl[job.url] = job; });
   var finalJobs = Object.values(uniqueByUrl);
 
   finalJobs.sort(function (a, b) { return b.match - a.match; });
-  finalJobs = finalJobs.slice(0, 40);
+  finalJobs = finalJobs.slice(0, 60);
 
-  console.log('TOPLAM benzersiz ilan: ' + finalJobs.length);
+  finalJobs.forEach(function (job, idx) {
+    job.id = idx + 1;
+    job.scrapedAt = new Date().toISOString();
+  });
+
+  console.log('TOPLAM benzersiz ilan: ' + finalJobs.length +
+    ' (Kariyer.net: ' + kariyerJobs.length +
+    ', Indeed: ' + indeedJobs.length +
+    ', Eleman.net: ' + elemanJobs.length +
+    ', Yenibiriş: ' + yenibirisJobs.length + ')');
 
   if (finalJobs.length === 0) {
-    console.log('UYARI: Hiç ilan bulunamadı. r.jina.ai de engellenmiş olabilir.');
-    console.log('Firebase güncellenmedi (eski veriler korunuyor).');
+    console.log('UYARI: Hiç ilan bulunamadı. Firebase güncellenmedi (eski veriler korunuyor).');
     return;
   }
 
