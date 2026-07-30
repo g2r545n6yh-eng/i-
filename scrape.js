@@ -3,14 +3,15 @@
 // Firebase Realtime Database'e yazar. GitHub Actions tarafından
 // zamanlanmış olarak (örn. her 6 saatte) çalıştırılır.
 //
-// NOT: Bu script Kariyer.net'in HTML yapısına dayanıyor. Site
-// tasarımını değiştirirse regex'lerin güncellenmesi gerekebilir.
-// İlk çalıştırmada "Actions" sekmesindeki logdan kaç ilan bulunduğunu
-// kontrol et; 0 çıkarsa bana log çıktısını gönder, regex'i düzeltelim.
+// NOT: Kariyer.net doğrudan otomatik isteklere HTTP 403 ile karşılık
+// veriyor (bot koruması). Bu yüzden istekleri ücretsiz r.jina.ai
+// "reader" servisi üzerinden yapıyoruz - bu servis sayfayı kendi
+// tarafında render edip temiz metin/markdown olarak döndürüyor.
+// r.jina.ai da engellenirse Firebase güncellenmez, eski veriler kalır.
 
 const FIREBASE_URL = 'https://berk-job-portal-default-rtdb.europe-west1.firebasedatabase.app';
+const READER_PREFIX = 'https://r.jina.ai/';
 
-// Aranacak kategoriler (URL'ler kariyer.net'in kendi arama formatı)
 const SEARCH_URLS = [
   'https://www.kariyer.net/is-ilanlari/depo+muduru',
   'https://www.kariyer.net/is-ilanlari/istanbul-depo+sorumlusu',
@@ -23,21 +24,10 @@ const SEARCH_URLS = [
 // Bu konumları içeren ilanları listeden çıkar (kullanıcı istemiyor)
 const EXCLUDE_LOCATIONS = ['kocaeli', 'gebze'];
 
-// CV'ye göre eşleşme puanı hesaplamak için anahtar kelimeler
 const SKILL_KEYWORDS = [
   'sap', 'wms', 'logo tiger', 'nebim', 'depo', 'lojistik', 'stok',
   'envanter', 'sevkiyat', 'operasyon', 'müdür', 'yönetici', 'sorumlu', 'uzman'
 ];
-
-function stripTags(html) {
-  return html
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 function scoreMatch(text) {
   var lower = text.toLowerCase();
@@ -48,15 +38,14 @@ function scoreMatch(text) {
   return Math.min(score, 98);
 }
 
-async function fetchPage(url) {
+async function fetchViaReader(url) {
+  var readerUrl = READER_PREFIX + url;
   try {
-    var res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
-      }
+    var res = await fetch(readerUrl, {
+      headers: { 'Accept': 'text/plain' }
     });
     if (!res.ok) {
-      console.log('HATA: ' + url + ' -> HTTP ' + res.status);
+      console.log('HATA: ' + url + ' -> Reader HTTP ' + res.status);
       return null;
     }
     return await res.text();
@@ -66,21 +55,20 @@ async function fetchPage(url) {
   }
 }
 
-function extractJobsFromHtml(html) {
+function extractJobsFromMarkdown(markdown) {
+  // r.jina.ai sayfayı markdown olarak döndürüyor.
+  // İlan linkleri şu formatta görünüyor: [Şirket Pozisyon Konum ... N gün](https://www.kariyer.net/is-ilani/slug-id)
   var jobs = [];
-  if (!html) return jobs;
+  if (!markdown) return jobs;
 
-  // Kariyer.net ilan linkleri şu formatta: /is-ilani/{slug}-{sayi}
-  // Linkin kendi metni genelde şirket + pozisyon + konum bilgisini içeriyor.
-  var linkRegex = /<a[^>]+href="(https:\/\/www\.kariyer\.net\/is-ilani\/[a-z0-9\-]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  var linkRegex = /\[([^\]]{5,300})\]\((https:\/\/www\.kariyer\.net\/is-ilani\/[a-z0-9\-]+)\)/gi;
   var match;
   var seen = {};
 
-  while ((match = linkRegex.exec(html)) !== null) {
-    var url = match[1];
-    var text = stripTags(match[2]);
+  while ((match = linkRegex.exec(markdown)) !== null) {
+    var text = match[1].replace(/\s+/g, ' ').trim();
+    var url = match[2];
 
-    if (!text || text.length < 5) continue;
     if (seen[url]) continue;
     seen[url] = true;
 
@@ -90,26 +78,48 @@ function extractJobsFromHtml(html) {
     });
     if (isExcluded) continue;
 
-    jobs.push({
-      rawText: text,
-      url: url
-    });
+    jobs.push({ rawText: text, url: url });
   }
 
   return jobs;
 }
 
 function parseJobFields(rawText) {
-  // rawText örneği: "Şirket Adı Pozisyon Adı Şirket Adı İstanbul İş Yerinde Tam zamanlı 3 gün"
-  // Kesin ayrıştırma zor olduğu için tüm metni "position" alanına koyup
-  // company'yi ilk birkaç kelimeden tahmin ediyoruz. Mükemmel değil ama kullanılabilir.
-  var words = rawText.split(' ');
-  var company = words.slice(0, Math.min(4, Math.ceil(words.length / 3))).join(' ');
+  var text = rawText;
+  var age = 'Yeni';
+
+  // Sondaki "X gün / X saat / X ay / Son gün" gibi ifadeleri yakala
+  var ageMatch = text.match(/(Son gün|(\d+)\s*(gün|saat|ay))\s*$/i);
+  if (ageMatch) {
+    age = ageMatch[0].trim();
+    text = text.slice(0, ageMatch.index).trim();
+  }
+
+  // Çalışma şeklini temizle (Tam zamanlı, Dönemsel, vb.)
+  text = text.replace(/(Tam zamanlı|Dönemsel\s*\/?\s*Proje bazlı|Yarı zamanlı|Serbest Zamanlı)\s*(\*update\*)?\s*$/i, '').trim();
+  text = text.replace(/Ort\.\s*\d+\s*günde dönüyor/i, '').trim();
+
+  // Konum bilgisini yakala (İş Yerinde / Uzaktan / Hibrit öncesi)
+  var location = 'İstanbul';
+  var locMatch = text.match(/(İstanbul(?:\(Asya\)|\(Avr\.\))?)\s*(İş Yerinde|Uzaktan\s*\/?\s*Remote|Hibrit)/i);
+  if (locMatch) {
+    location = locMatch[1];
+    text = text.slice(0, locMatch.index).trim();
+  } else {
+    text = text.replace(/(İş Yerinde|Uzaktan\s*\/?\s*Remote|Hibrit)\s*$/i, '').trim();
+  }
+
+  // Geriye kalan metin genelde "Şirket Pozisyon Şirket" şeklinde tekrarlı.
+  // Basit yaklaşım: tamamını "position" olarak sakla, ilk birkaç kelimeyi "company" tahmini yap.
+  var words = text.split(' ').filter(Boolean);
+  var companyGuessLen = Math.min(4, Math.max(1, Math.floor(words.length / 3)));
+  var company = words.slice(0, companyGuessLen).join(' ') || 'Bilinmiyor';
+
   return {
     company: company,
-    position: rawText,
-    location: 'İstanbul',
-    age: 'Yeni tarandı'
+    position: text || rawText,
+    location: location,
+    age: age
   };
 }
 
@@ -120,8 +130,8 @@ async function main() {
   for (var i = 0; i < SEARCH_URLS.length; i++) {
     var url = SEARCH_URLS[i];
     console.log('Taranıyor: ' + url);
-    var html = await fetchPage(url);
-    var found = extractJobsFromHtml(html);
+    var markdown = await fetchViaReader(url);
+    var found = extractJobsFromMarkdown(markdown);
     console.log('  -> ' + found.length + ' ilan linki bulundu');
 
     found.forEach(function (item) {
@@ -139,34 +149,27 @@ async function main() {
       });
     });
 
-    // Siteyi yormamak için istekler arasında kısa bekleme
-    await new Promise(function (r) { setTimeout(r, 1500); });
+    // r.jina.ai ücretsiz kullanımda dakikada ~20 istek sınırı var, aralarda bekle
+    await new Promise(function (r) { setTimeout(r, 3000); });
   }
 
-  // Aynı url'den birden fazla varsa tekilleştir
   var uniqueByUrl = {};
-  allJobs.forEach(function (job) {
-    uniqueByUrl[job.url] = job;
-  });
+  allJobs.forEach(function (job) { uniqueByUrl[job.url] = job; });
   var finalJobs = Object.values(uniqueByUrl);
 
-  // En iyi eşleşenden başlayarak sırala, ilk 40 ile sınırla
   finalJobs.sort(function (a, b) { return b.match - a.match; });
   finalJobs = finalJobs.slice(0, 40);
 
   console.log('TOPLAM benzersiz ilan: ' + finalJobs.length);
 
   if (finalJobs.length === 0) {
-    console.log('UYARI: Hiç ilan bulunamadı. Kariyer.net HTML yapısı değişmiş olabilir.');
+    console.log('UYARI: Hiç ilan bulunamadı. r.jina.ai de engellenmiş olabilir.');
     console.log('Firebase güncellenmedi (eski veriler korunuyor).');
     return;
   }
 
-  // Firebase'e yaz: /jobs.json altına, id'ye göre keyed obje olarak
   var jobsObject = {};
-  finalJobs.forEach(function (job) {
-    jobsObject[job.id] = job;
-  });
+  finalJobs.forEach(function (job) { jobsObject[job.id] = job; });
 
   var putRes = await fetch(FIREBASE_URL + '/jobs.json', {
     method: 'PUT',
